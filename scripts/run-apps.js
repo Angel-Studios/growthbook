@@ -73,6 +73,9 @@ function forwardLine(line, level) {
 function forward(stream, level) {
   let buffer = "";
   stream.setEncoding("utf8");
+  stream.on("error", (err) =>
+    writeJson(40, `child stream error: ${err.message}`),
+  );
   stream.on("data", (chunk) => {
     buffer += chunk;
     let index;
