@@ -54,16 +54,49 @@ function rssBytes(pid) {
   }
 }
 
-// stderr, so stdout stays purely the apps' own output and a log pipeline parsing
-// the back-end's JSON lines doesn't trip over ours.
-const log = (message) => console.error(`[run-apps] ${message}`);
+function writeJson(level, message, extra) {
+  process.stdout.write(
+    JSON.stringify({ level, time: Date.now(), msg: message, ...extra }) + "\n",
+  );
+}
+
+function forwardLine(line, level) {
+  if (!line.trim()) return;
+  try {
+    JSON.parse(line);
+    process.stdout.write(line + "\n");
+  } catch {
+    writeJson(level, line);
+  }
+}
+
+function forward(stream, level) {
+  let buffer = "";
+  stream.setEncoding("utf8");
+  stream.on("data", (chunk) => {
+    buffer += chunk;
+    let index;
+    while ((index = buffer.indexOf("\n")) !== -1) {
+      forwardLine(buffer.slice(0, index).replace(/\r$/, ""), level);
+      buffer = buffer.slice(index + 1);
+    }
+  });
+  stream.on("end", () => {
+    forwardLine(buffer, level);
+    buffer = "";
+  });
+}
+
+const log = (message) => writeJson(30, `[run-apps] ${message}`);
+
+const fail = (message) => {
+  writeJson(50, message);
+  process.exit(1);
+};
 
 const { only, configPath } = parseArgs(process.argv.slice(2));
 if (!configPath) {
-  console.error(
-    "usage: run-apps.js start <ecosystem.config.js> [--only <app>]",
-  );
-  process.exit(1);
+  fail("usage: run-apps.js start <ecosystem.config.js> [--only <app>]");
 }
 
 const resolvedConfig = path.resolve(configPath);
@@ -73,10 +106,9 @@ const apps = (require(resolvedConfig).apps || []).filter(
 );
 
 if (!apps.length) {
-  console.error(
+  fail(
     `No apps to run in ${configPath}${only ? ` matching --only ${only}` : ""}`,
   );
-  process.exit(1);
 }
 
 // name identifies a process everywhere below, so a missing or repeated one makes
@@ -84,12 +116,10 @@ if (!apps.length) {
 const names = new Set();
 for (const app of apps) {
   if (typeof app.name !== "string" || !app.name) {
-    console.error(`Every app needs a name; found ${JSON.stringify(app.name)}`);
-    process.exit(1);
+    fail(`Every app needs a name; found ${JSON.stringify(app.name)}`);
   }
   if (names.has(app.name)) {
-    console.error(`Duplicate app name ${JSON.stringify(app.name)}`);
-    process.exit(1);
+    fail(`Duplicate app name ${JSON.stringify(app.name)}`);
   }
   names.add(app.name);
 }
@@ -100,11 +130,10 @@ for (const app of apps) {
   if ((app.max_memory_restart ?? null) === null) continue;
   const limit = parseMemory(app.max_memory_restart);
   if (limit === null || limit < MIN_MEMORY_BYTES) {
-    console.error(
+    fail(
       `${app.name}: max_memory_restart ${JSON.stringify(app.max_memory_restart)} ` +
         `is unusable; expected at least ${MIN_MEMORY_BYTES / 1024 ** 2}M, like "512M" or "6G"`,
     );
-    process.exit(1);
   }
   limits.set(app.name, limit);
 }
@@ -159,9 +188,12 @@ function start(app) {
     [...toArray(app.node_args), app.script, ...toArray(app.args)],
     {
       cwd: app.cwd ? path.resolve(rootDir, app.cwd) : rootDir,
-      stdio: "inherit",
+      stdio: ["inherit", "pipe", "pipe"],
     },
   );
+
+  forward(child.stdout, 30);
+  forward(child.stderr, 40);
 
   running.set(app.name, child);
   log(`started ${app.name} (pid ${child.pid})`);

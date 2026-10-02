@@ -1,6 +1,27 @@
+import { hostname } from "node:os";
 import { scrubSentryEvent } from "shared/sentry";
 
 export async function register() {
+  if (process.env.NEXT_RUNTIME !== "edge") {
+    process.removeAllListeners("warning");
+    process.on("warning", (warning: Error) => {
+      process.stdout.write(
+        JSON.stringify({
+          level: 40,
+          time: Date.now(),
+          pid: process.pid,
+          hostname: hostname(),
+          msg: warning.message,
+          warning: {
+            name: warning.name,
+            code: (warning as NodeJS.ErrnoException).code,
+            stack: warning.stack,
+          },
+        }) + "\n",
+      );
+    });
+  }
+
   // NB: Sentry for client-side is setup in initEnv
   if (
     process.env.NEXT_RUNTIME === "nodejs" ||
