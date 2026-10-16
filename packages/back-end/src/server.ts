@@ -1,5 +1,6 @@
 import "./init/aliases";
 import "./init/dotenv";
+import "./init/logging";
 import "./instrumentation";
 import app from "./app";
 import { logger } from "./util/logger";
