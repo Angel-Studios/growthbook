@@ -4231,7 +4231,28 @@ export async function getExperimentTimeSeries(
   const context = getContextFromReq(req);
   const { id } = req.params;
   const { phase, metricIds, dimensions } = req.query;
+
+  if (typeof phase !== "string") {
+    throw new Error("Invalid phase");
+  }
   const phaseIndex = parseInt(phase, 10);
+
+  if (!Array.isArray(metricIds) || metricIds.some((m) => typeof m !== "string")) {
+    throw new Error("metricIds must be an array of strings");
+  }
+
+  const validatedDimensions =
+    dimensions === undefined
+      ? undefined
+      : Array.isArray(dimensions)
+        ? dimensions
+        : null;
+
+  if (validatedDimensions === null) {
+    throw new Error(
+      "dimensions must be an array containing id and optionally value objects",
+    );
+  }
 
   const experiment = await getExperimentById(context, id);
   if (!experiment) {
@@ -4246,13 +4267,7 @@ export async function getExperimentTimeSeries(
     throw new Error("Invalid phase");
   }
 
-  if (!!dimensions && !Array.isArray(dimensions)) {
-    throw new Error(
-      "dimensions must be an array containing id and optionally value objects",
-    );
-  }
-
-  if (!!dimensions && dimensions.length > 50) {
+  if (!!validatedDimensions && validatedDimensions.length > 50) {
     throw new Error("dimensions cannot contain more than 50 values");
   }
 
@@ -4262,7 +4277,7 @@ export async function getExperimentTimeSeries(
       sourceId: id,
       sourcePhase: phaseIndex,
       metricIds,
-      dimensions,
+      dimensions: validatedDimensions,
     });
 
   res.status(200).json({
