@@ -7,9 +7,17 @@ import { getApiHost, usingSSO } from "@/services/env";
 import { trackPageView } from "@/services/track";
 import Callout from "@/ui/Callout";
 
+function sanitizeResetToken(value: string | string[] | undefined): string | null {
+  const token = Array.isArray(value) ? value[0] : value;
+  if (!token) return null;
+  if (!/^[A-Za-z0-9._-]+$/.test(token)) return null;
+  return token;
+}
+
 export default function ResetPasswordPage(): ReactElement {
   const router = useRouter();
   const token = router.query.token;
+  const safeToken = sanitizeResetToken(token);
   const [error, setError] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -18,14 +26,14 @@ export default function ResetPasswordPage(): ReactElement {
 
   useEffect(() => {
     if (!router.isReady) return;
-    if (!token) {
+    if (!safeToken) {
       setError("Missing reset token");
       setLoading(false);
       return;
     }
 
     // Check if token is valid
-    fetch(getApiHost() + "/auth/reset/" + token, { credentials: "include" })
+    fetch(getApiHost() + "/auth/reset/" + encodeURIComponent(safeToken), { credentials: "include" })
       .then((res) => res.json())
       .then((json: { status: number; message?: string; email?: string }) => {
         if (json.status > 200) {
@@ -37,7 +45,7 @@ export default function ResetPasswordPage(): ReactElement {
         setEmail(json.email || "");
         setLoading(false);
       });
-  }, [token, router.isReady]);
+  }, [safeToken, router.isReady]);
 
   // This page is before the user is part of an org, so need to manually fire a page load event
   useEffect(() => {
@@ -63,14 +71,17 @@ export default function ResetPasswordPage(): ReactElement {
         success || error || loading
           ? undefined
           : async () => {
-              const res = await fetch(getApiHost() + "/auth/reset/" + token, {
+              if (!safeToken) {
+                throw new Error("Missing reset token");
+              }
+              const res = await fetch(getApiHost() + "/auth/reset/" + encodeURIComponent(safeToken), {
                 credentials: "include",
                 method: "POST",
                 headers: {
                   "Content-Type": "application/json",
                 },
                 body: JSON.stringify({
-                  token,
+                  token: safeToken,
                   password,
                 }),
               });
