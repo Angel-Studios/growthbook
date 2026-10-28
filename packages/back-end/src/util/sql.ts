@@ -59,6 +59,10 @@ function usesTemplateVariable(sql: string, variableName: string) {
   return sql.match(new RegExp(`{{[^}]*${variableName}`, "g"));
 }
 
+function containsHandlebarsTemplateSyntax(sql: string): boolean {
+  return /{{[\s\S]*?}}/.test(sql);
+}
+
 // Compile sql template with handlebars, replacing vars (e.g. '{{startDate}}') and evaluating helpers (e.g. '{{camelcase eventName}}')
 // Pass `dialect` so dialect-aware helpers like `{{sqlstring}}` produce output
 // that's safe for the current database. When omitted, helpers fall back to a
@@ -132,6 +136,11 @@ export function compileSqlTemplate(
   }
 
   try {
+    if (containsHandlebarsTemplateSyntax(sql)) {
+      throw new Error(
+        "Error compiling SQL template: Dynamic template expressions are not allowed in this SQL input.",
+      );
+    }
     // TODO: Do sql escaping instead of html escaping for any new replacements
     const template = Handlebars.compile(sql, {
       strict: true,
